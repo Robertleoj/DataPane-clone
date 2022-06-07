@@ -6,7 +6,6 @@ Describes the `Report` object and included APIs for saving and uploading them.
 import dataclasses as dc
 import random
 import typing as t
-import webbrowser
 from base64 import b64encode
 from enum import Enum
 from functools import reduce
@@ -21,7 +20,6 @@ from lxml.etree import Element, _Element
 from markupsafe import Markup  # used by Jinja
 
 from datapane.client import config as c
-from datapane.client.analytics import _NO_ANALYTICS, capture, capture_event
 from datapane.client.api.common import DPTmpFile, Resource
 from datapane.client.api.dp_object import DPObjectRef
 from datapane.client.api.runtime import _report
@@ -42,7 +40,10 @@ from .blocks import (
     wrap_block,
 )
 
-local_post_xslt = etree.parse(str(local_report_def / "local_post_process.xslt"))
+local_post_xslt = etree.parse(
+    str(local_report_def / "local_post_process.xslt")
+)
+
 local_post_transform = etree.XSLT(local_post_xslt)
 
 # only these types will be documented by default
@@ -143,15 +144,13 @@ class ReportFileWriter:
         template_env.globals["include_raw"] = include_raw
         self.template = template_env.get_template("template.html")
 
-    def write(
+    def generate(
         self,
         report_doc: str,
-        path: str,
         name: str,
-        author: t.Optional[str] = None,
-        formatting: ReportFormatting = None,
-    ) -> str:
-
+        author: str,
+        formatting = None
+    ):
         if formatting is None:
             formatting = ReportFormatting()
 
@@ -171,11 +170,43 @@ class ReportFileWriter:
             dp_logo=self.logo,
             report_id=report_id,
             author_id=c.config.session_id,
-            events=not _NO_ANALYTICS,
+            events=False,
         )
+
+        return r, report_id
+
+
+    def write(
+        self,
+        report_doc: str,
+        path: str,
+        name: str,
+        author: t.Optional[str] = None,
+        formatting: ReportFormatting = None,
+    ) -> str:
+        r, report_id = self.generate(
+            report_doc,
+            name,
+            author
+        )
+
         Path(path).write_text(r, encoding="utf-8")
 
         return report_id
+
+    def get_html(
+        self,
+        report_doc: str,
+        name: str,
+        author: t.Optional[str] = None,
+    ):
+        r, _ = self.generate(
+            report_doc,
+            name,
+            author
+        )
+
+        return r
 
 
 # Type aliases
@@ -235,9 +266,15 @@ class Report(DPObjectRef):
             self.pages = [Page(blocks=pages)]
 
     def _to_xml(
-        self, embedded: bool, title: str = "Title", description: str = "Description", author: str = "Anonymous"
+        self, 
+        embedded: bool, 
+        title: str = "Title", 
+        description: str = "Description", 
+        author: str = "Anonymous"
     ) -> t.Tuple[Element, t.List[Path]]:
+
         """Build XML report document"""
+
         # convert Pages to XML
         s = BuilderState(embedded)
         _s = reduce(lambda _s, p: p._to_xml(_s), self.pages, s)
@@ -274,17 +311,30 @@ class Report(DPObjectRef):
         check_empty: bool = True,
     ) -> t.Tuple[str, t.List[Path]]:
         """Generate a report for saving/uploading"""
-        report_doc, attachments = self._to_xml(embedded, title, description, author)
+
+        report_doc, attachments = self._to_xml(
+            embedded, title, description, author
+        )
 
         # post_process and validate
-        processed_report_doc = local_post_transform(report_doc, embedded="true()" if embedded else "false()")
+        processed_report_doc = local_post_transform(
+            report_doc, embedded="true()" if embedded else "false()"
+        )
+
         validate_report_doc(xml_doc=processed_report_doc)
-        self._report_status_checks(processed_report_doc, embedded, check_empty)
+
+        self._report_status_checks(
+            processed_report_doc, embedded, check_empty
+        )
 
         # convert to string
-        report_str = etree.tounicode(processed_report_doc)
+        # report_str = etree.tounicode(processed_report_doc)
+        report_str = etree.tostring(
+            processed_report_doc, encoding='unicode'
+        )
+
         log.debug("Successfully Built Report")
-        # log.debug(report_str)
+
         return (report_str, attachments)
 
     def _report_status_checks(self, processed_report_doc: etree._ElementTree, embedded: bool, check_empty: bool):
@@ -409,9 +459,6 @@ class Report(DPObjectRef):
             **kwargs,
         )
 
-        if open:
-            webbrowser.open_new_tab(self.web_url)
-
         display_msg(
             "Report successfully uploaded. View and share your report {web_url:l}, or edit your report {edit_url:l}.",
             web_url=self.web_url,
@@ -422,7 +469,6 @@ class Report(DPObjectRef):
         self,
         *arg_blocks: Block,
         blocks: t.Union[BlockDict, BlockList] = None,
-        open: bool = False,
         **kw_blocks: BlockOrPrimitive,
     ) -> None:
         """
@@ -433,7 +479,6 @@ class Report(DPObjectRef):
         Args:
             *arg_blocks: List of blocks to add to document, these must be wrapped, e.g. using dp.DataTable(df) instead of df
             blocks: Allows providing the document blocks as a single list/dictionary of named blocks
-            open: Open the report in your browser for editing after updating
             **kw_blocks: Keyword argument set of blocks, whose block name will be that given in the keyword
 
         Returns:
@@ -475,16 +520,6 @@ class Report(DPObjectRef):
         files = dict(attachments=attachments)
         # post to the custom endpoint
         Resource(f"{self.url}update_assets/").post_files(files, document=report_str, name=self.name)
-        self.refresh()
-
-        display_msg(
-            "Successfully updated report assets  - you can edit and format {edit_url:l}, and view the final report {web_url:l}",
-            web_url=self.web_url,
-            edit_url=self.edit_url,
-        )
-
-        if open:
-            webbrowser.open_new_tab(self.edit_url)
         return self
 
     ############################################################################
@@ -492,9 +527,7 @@ class Report(DPObjectRef):
     def _save(
         self,
         path: str,
-        open: bool = False,
         name: t.Optional[str] = None,
-        author: t.Optional[str] = None,
         formatting: t.Optional[ReportFormatting] = None,
     ) -> str:
 
@@ -509,50 +542,29 @@ class Report(DPObjectRef):
             formatting=formatting,
         )
 
-        if c.config.is_anonymous:
-            display_msg(
-                "Report saved to ./{path}. To upload and share your report, create a free Datapane account by running `{signup:cmd}`.",
-                path=path,
-                signup="datapane signup",
-            )
-        else:
-            display_msg(f"Report saved to ./{path}")
-
-        if open:
-            path_uri = f"file://{osp.realpath(osp.expanduser(path))}"
-            webbrowser.open_new_tab(path_uri)
-
-        return report_id
-
     def save(
         self,
         path: str,
-        open: bool = False,
         name: t.Optional[str] = None,
-        author: t.Optional[str] = None,
         formatting: t.Optional[ReportFormatting] = None,
     ) -> None:
         """Save the report document to a local HTML file
 
         Args:
             path: File path to store the document
-            open: Open in your browser after creating (default: False)
             name: Name of the document (optional: uses path if not provided)
-            author: The report author / email / etc. (optional)
             formatting: Sets the basic report styling
         """
 
-        report_id = self._save(path, open, name, author, formatting)
-        capture("CLI Report Save", report_id=report_id)
+        self._save(path, name, formatting)
 
-        # feedback form
-        if random.random() < 0.1:
-            display_msg(
-                "How is your experience of Datapane? Please take two minutes to answer our anonymous product survey {url:l}",
-                url="https://bit.ly/3lWjRlr",
-            )
 
-    @capture_event("CLI Report Preview")
+    def get_html(
+        self, name
+    ):
+        local_doc, _ = self._gen_report(embedded=True, title=name)
+        return self._local_writer.get_html(local_doc, name)
+
     def preview(
         self,
         open: True,
