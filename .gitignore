@@ -31,3 +31,4 @@ test_report*/
 test_script*/
 .ipynb_checkpoints
 /docs
+.experiments

@@ -4,12 +4,11 @@ Datapane Reports Object
 Describes the `Report` object and included APIs for saving and uploading them.
 """
 import dataclasses as dc
-import random
 import typing as t
 from base64 import b64encode
 from enum import Enum
 from functools import reduce
-from os import path as osp
+# from os import path as osp
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,11 +19,11 @@ from lxml.etree import Element, _Element
 from markupsafe import Markup  # used by Jinja
 
 from datapane.client import config as c
-from datapane.client.api.common import DPTmpFile, Resource
+from datapane.client.api.common import DPTmpFile
 from datapane.client.api.dp_object import DPObjectRef
-from datapane.client.api.runtime import _report
-from datapane.client.utils import DPError, InvalidReportError, display_msg
-from datapane.common import dict_drop_empty, log, timestamp
+# from datapane.client.api.runtime import _report
+from datapane.client.utils import DPError, InvalidReportError
+from datapane.common import log, timestamp
 from datapane.common.report import local_report_def, validate_report_doc
 
 from .blocks import (
@@ -336,6 +335,7 @@ class Report(DPObjectRef):
         log.debug("Successfully Built Report")
 
         return (report_str, attachments)
+        # return report_doc, processed_report_doc
 
     def _report_status_checks(self, processed_report_doc: etree._ElementTree, embedded: bool, check_empty: bool):
         # check for any unsupported local features, e.g. DataTable
@@ -348,182 +348,19 @@ class Report(DPObjectRef):
         asset_blocks = processed_report_doc.xpath("count(/Report/Pages/Page/*)")
         if asset_blocks == 0 and check_empty:
             raise InvalidReportError("Empty report - must contain at least one asset/block")
-        elif c.config.is_public:
-            # only nudge public users
-            if asset_blocks < 4:
-                display_msg(
-                    "Your report only contains a single element - did you know you can include additional plots, tables and text in a single report? More info {url:l}",
-                    url="https://docs.datapane.com/reports/blocks/layout-pages-and-selects",
-                )
+
 
     @property
     def edit_url(self):
         return f"{self.web_url}edit/"
 
-    ############################################################################
-    # Uploaded Reports
-    # TODO - inline into upload - wait on new report API
-    def _upload_report(
-        self,
-        name: str,
-        description: str = "",
-        source_url: str = "",
-        publicly_visible: bool = False,
-        tags: t.List[str] = None,
-        project: t.Optional[str] = None,
-        formatting: t.Optional[ReportFormatting] = None,
-        overwrite: bool = False,
-        **kwargs,
-    ) -> None:
-        # TODO - clean up arg handling
-        # process params
-        tags = tags or []
+    def get_html(
+        self, 
+        name: str
+    ):
+        local_doc, _ = self._gen_report(embedded=True, title=name)
+        return self._local_writer.get_html(local_doc, name)
 
-        formatting_kwargs = {}
-        if formatting:
-            formatting_kwargs.update(
-                width=formatting.width.value,
-                style_header=(
-                    f'<style type="text/css">\n{formatting.to_css()}\n</style>'
-                    if c.config.is_org
-                    else formatting.to_css()
-                ),
-                is_light_prose=formatting.light_prose,
-            )
-
-        kwargs.update(
-            name=name,
-            description=description,
-            tags=tags,
-            source_url=source_url,
-            publicly_visible=publicly_visible,
-            project=project,
-            **formatting_kwargs,
-        )
-        # current protocol is to strip all empty args and patch (via a post)
-        # TODO(protocol) - alternate plan would be keeping local state in resource handle and posting all
-        kwargs = dict_drop_empty(kwargs)
-
-        # generate the report
-        report_str, attachments = self._gen_report(embedded=False, title=name, description=description)
-        files = dict(attachments=attachments)
-
-        res = Resource(self.endpoint).post_files(files, overwrite=overwrite, document=report_str, **kwargs)
-
-        # Set dto based on new URL
-        self.url = res.url
-        self.refresh()
-
-        # add report to internal API handler for use by_datapane
-        _report.append(self)
-
-    def upload(
-        self,
-        name: str,
-        description: str = "",
-        source_url: str = "",
-        publicly_visible: bool = False,
-        tags: t.List[str] = None,
-        project: t.Optional[str] = None,
-        open: bool = False,
-        formatting: t.Optional[ReportFormatting] = None,
-        overwrite: bool = False,
-        **kwargs,
-    ) -> None:
-        """
-        Upload the report document, including its attached assets, to the logged-in Datapane Server.
-
-        Args:
-            name: The document name - can include spaces, caps, symbols, etc., e.g. "Profit & Loss 2020"
-            description: A high-level description for the document, this is displayed in searches and thumbnails
-            source_url: A URL pointing to the source code for the document, e.g. a GitHub repo or a Colab notebook
-            publicly_visible: Visible to anyone with the link
-            tags: A list of tags (as strings) used to categorise your document
-            project: Project to add the report to (Teams only)
-            open: Open the file in your browser after creating
-            formatting: Set the basic styling for your report
-            overwrite: Overwrite the report
-        """
-
-        display_msg("Uploading report and associated data - *please wait...*")
-
-        self._upload_report(
-            name,
-            description,
-            source_url,
-            publicly_visible,
-            tags,
-            project,
-            formatting=formatting,
-            overwrite=overwrite,
-            **kwargs,
-        )
-
-        display_msg(
-            "Report successfully uploaded. View and share your report {web_url:l}, or edit your report {edit_url:l}.",
-            web_url=self.web_url,
-            edit_url=self.edit_url,
-        )
-
-    def update_assets(
-        self,
-        *arg_blocks: Block,
-        blocks: t.Union[BlockDict, BlockList] = None,
-        **kw_blocks: BlockOrPrimitive,
-    ) -> None:
-        """
-        Upload updated plots, text, tables, and files for a report.
-        Blocks can be created with the `name` parameter, if not set, one can be provided here using keyword args.
-        Use the blocks dict parameter to add a dynamically generated set of named blocks, useful when working in Jupyter
-
-        Args:
-            *arg_blocks: List of blocks to add to document, these must be wrapped, e.g. using dp.DataTable(df) instead of df
-            blocks: Allows providing the document blocks as a single list/dictionary of named blocks
-            **kw_blocks: Keyword argument set of blocks, whose block name will be that given in the keyword
-
-        Returns:
-            None
-
-        ..tip:: Blocks can be passed using either arg parameters or the `blocks` kwarg as a dictionary, e.g.
-          `report.update_assets(my_plot=plot, my_table=table)` or `report.update_assets(blocks={"my_plot": plot, "my_table":table})`
-
-        ..tip:: Create a dictionary first to hold your blocks to edit them dynamically, for instance when using Jupyter, and use the `blocks` parameter
-        """
-        # set the blocks
-        def _conv_block(block: BlockOrPrimitive, name: t.Optional[str] = None) -> Block:
-            x = wrap_block(block)
-            x._set_name(name)
-            return x
-
-        _blocks: BlockList
-        if isinstance(blocks, dict):
-            _blocks = [_conv_block(b, n) for (n, b) in blocks.items()]
-        elif isinstance(blocks, list):
-            _blocks = [_conv_block(b, None) for b in blocks]
-        else:
-            # use arg and kw blocks
-            _blocks = [_conv_block(b, None) for b in arg_blocks]
-            _blocks.extend([_conv_block(b, n) for (n, b) in kw_blocks.items()])
-
-        # Validity checks
-        if not _blocks:
-            raise DPError("No blocks provided to update")
-        # TODO - use typeguard
-        assert all(isinstance(x, BaseElement) for x in _blocks), "Please use kwarg syntax to upload unwrapped asses"
-        assert all(x.name for x in _blocks), "Please ensure all blocks have a name parameter set, or use kwarg syntax"
-
-        # set the pages
-        self.pages = [Page(blocks=[Group(blocks=_blocks)])]
-
-        # generate the report and upload
-        report_str, attachments = self._gen_report(embedded=False)
-        files = dict(attachments=attachments)
-        # post to the custom endpoint
-        Resource(f"{self.url}update_assets/").post_files(files, document=report_str, name=self.name)
-        return self
-
-    ############################################################################
-    # Local saved reports
     def _save(
         self,
         path: str,
@@ -542,40 +379,185 @@ class Report(DPObjectRef):
             formatting=formatting,
         )
 
-    def save(
-        self,
-        path: str,
-        name: t.Optional[str] = None,
-        formatting: t.Optional[ReportFormatting] = None,
-    ) -> None:
-        """Save the report document to a local HTML file
-
-        Args:
-            path: File path to store the document
-            name: Name of the document (optional: uses path if not provided)
-            formatting: Sets the basic report styling
-        """
-
-        self._save(path, name, formatting)
 
 
-    def get_html(
-        self, name
-    ):
-        local_doc, _ = self._gen_report(embedded=True, title=name)
-        return self._local_writer.get_html(local_doc, name)
+    ############################################################################
+    # Uploaded Reports
+    # TODO - inline into upload - wait on new report API
+    # def _upload_report(
+    #     self,
+    #     name: str,
+    #     description: str = "",
+    #     source_url: str = "",
+    #     publicly_visible: bool = False,
+    #     tags: t.List[str] = None,
+    #     project: t.Optional[str] = None,
+    #     formatting: t.Optional[ReportFormatting] = None,
+    #     overwrite: bool = False,
+    #     **kwargs,
+    # ) -> None:
+    #     # TODO - clean up arg handling
+    #     # process params
+    #     tags = tags or []
 
-    def preview(
-        self,
-        open: True,
-        formatting: t.Optional[ReportFormatting] = None,
-    ) -> None:
-        """Preview the report in a new browser window.
-        Can be called multiple times, refreshing the existing created preview file.
-        Pass open=False to stop openning a new tab on subsequent previews
+    #     formatting_kwargs = {}
+    #     if formatting:
+    #         formatting_kwargs.update(
+    #             width=formatting.width.value,
+    #             style_header=(
+    #                 f'<style type="text/css">\n{formatting.to_css()}\n</style>'
+    #                 if c.config.is_org
+    #                 else formatting.to_css()
+    #             ),
+    #             is_light_prose=formatting.light_prose,
+    #         )
 
-        Args:
-            open: Open in your browser after creating (default: True)
-            formatting: Sets the basic report styling
-        """
-        self._save(self._preview_file.name, open=open, formatting=formatting)
+    #     kwargs.update(
+    #         name=name,
+    #         description=description,
+    #         tags=tags,
+    #         source_url=source_url,
+    #         publicly_visible=publicly_visible,
+    #         project=project,
+    #         **formatting_kwargs,
+    #     )
+    #     # current protocol is to strip all empty args and patch (via a post)
+    #     # TODO(protocol) - alternate plan would be keeping local state in resource handle and posting all
+    #     kwargs = dict_drop_empty(kwargs)
+
+    #     # generate the report
+    #     report_str, attachments = self._gen_report(embedded=False, title=name, description=description)
+    #     files = dict(attachments=attachments)
+
+    #     res = Resource(self.endpoint).post_files(files, overwrite=overwrite, document=report_str, **kwargs)
+
+    #     # Set dto based on new URL
+    #     self.url = res.url
+    #     self.refresh()
+
+    #     # add report to internal API handler for use by_datapane
+    #     _report.append(self)
+
+
+    # def upload(
+    #     self,
+    #     name: str,
+    #     description: str = "",
+    #     source_url: str = "",
+    #     publicly_visible: bool = False,
+    #     tags: t.List[str] = None,
+    #     project: t.Optional[str] = None,
+    #     open: bool = False,
+    #     formatting: t.Optional[ReportFormatting] = None,
+    #     overwrite: bool = False,
+    #     **kwargs,
+    # ) -> None:
+    #     """
+    #     Upload the report document, including its attached assets, to the logged-in Datapane Server.
+
+    #     Args:
+    #         name: The document name - can include spaces, caps, symbols, etc., e.g. "Profit & Loss 2020"
+    #         description: A high-level description for the document, this is displayed in searches and thumbnails
+    #         source_url: A URL pointing to the source code for the document, e.g. a GitHub repo or a Colab notebook
+    #         publicly_visible: Visible to anyone with the link
+    #         tags: A list of tags (as strings) used to categorise your document
+    #         project: Project to add the report to (Teams only)
+    #         open: Open the file in your browser after creating
+    #         formatting: Set the basic styling for your report
+    #         overwrite: Overwrite the report
+    #     """
+
+    #     display_msg("Uploading report and associated data - *please wait...*")
+
+    #     self._upload_report(
+    #         name,
+    #         description,
+    #         source_url,
+    #         publicly_visible,
+    #         tags,
+    #         project,
+    #         formatting=formatting,
+    #         overwrite=overwrite,
+    #         **kwargs,
+    #     )
+
+    #     display_msg(
+    #         "Report successfully uploaded. View and share your report {web_url:l}, or edit your report {edit_url:l}.",
+    #         web_url=self.web_url,
+    #         edit_url=self.edit_url,
+    #     )
+
+    # def update_assets(
+    #     self,
+    #     *arg_blocks: Block,
+    #     blocks: t.Union[BlockDict, BlockList] = None,
+    #     **kw_blocks: BlockOrPrimitive,
+    # ) -> None:
+    #     """
+    #     Upload updated plots, text, tables, and files for a report.
+    #     Blocks can be created with the `name` parameter, if not set, one can be provided here using keyword args.
+    #     Use the blocks dict parameter to add a dynamically generated set of named blocks, useful when working in Jupyter
+
+    #     Args:
+    #         *arg_blocks: List of blocks to add to document, these must be wrapped, e.g. using dp.DataTable(df) instead of df
+    #         blocks: Allows providing the document blocks as a single list/dictionary of named blocks
+    #         **kw_blocks: Keyword argument set of blocks, whose block name will be that given in the keyword
+
+    #     Returns:
+    #         None
+
+    #     ..tip:: Blocks can be passed using either arg parameters or the `blocks` kwarg as a dictionary, e.g.
+    #       `report.update_assets(my_plot=plot, my_table=table)` or `report.update_assets(blocks={"my_plot": plot, "my_table":table})`
+
+    #     ..tip:: Create a dictionary first to hold your blocks to edit them dynamically, for instance when using Jupyter, and use the `blocks` parameter
+    #     """
+    #     # set the blocks
+    #     def _conv_block(block: BlockOrPrimitive, name: t.Optional[str] = None) -> Block:
+    #         x = wrap_block(block)
+    #         x._set_name(name)
+    #         return x
+
+    #     _blocks: BlockList
+    #     if isinstance(blocks, dict):
+    #         _blocks = [_conv_block(b, n) for (n, b) in blocks.items()]
+    #     elif isinstance(blocks, list):
+    #         _blocks = [_conv_block(b, None) for b in blocks]
+    #     else:
+    #         # use arg and kw blocks
+    #         _blocks = [_conv_block(b, None) for b in arg_blocks]
+    #         _blocks.extend([_conv_block(b, n) for (n, b) in kw_blocks.items()])
+
+    #     # Validity checks
+    #     if not _blocks:
+    #         raise DPError("No blocks provided to update")
+    #     # TODO - use typeguard
+    #     assert all(isinstance(x, BaseElement) for x in _blocks), "Please use kwarg syntax to upload unwrapped asses"
+    #     assert all(x.name for x in _blocks), "Please ensure all blocks have a name parameter set, or use kwarg syntax"
+
+    #     # set the pages
+    #     self.pages = [Page(blocks=[Group(blocks=_blocks)])]
+
+    #     # generate the report and upload
+    #     report_str, attachments = self._gen_report(embedded=False)
+    #     files = dict(attachments=attachments)
+    #     # post to the custom endpoint
+    #     Resource(f"{self.url}update_assets/").post_files(files, document=report_str, name=self.name)
+    #     return self
+
+    ############################################################################
+    # Local saved reports
+    # def save(
+    #     self,
+    #     path: str,
+    #     name: t.Optional[str] = None,
+    #     formatting: t.Optional[ReportFormatting] = None,
+    # ) -> None:
+    #     """Save the report document to a local HTML file
+
+    #     Args:
+    #         path: File path to store the document
+    #         name: Name of the document (optional: uses path if not provided)
+    #         formatting: Sets the basic report styling
+    #     """
+
+    #     self._save(path, name, formatting)
