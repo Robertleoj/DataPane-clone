@@ -166,7 +166,7 @@ class ReportFileWriter:
             report_date=timestamp(),
             css_header=formatting.to_css(),
             is_light_prose=formatting.light_prose,
-            dp_logo=self.logo,
+            # dp_logo=self.logo,
             report_id=report_id,
             author_id=c.config.session_id,
             events=False,
