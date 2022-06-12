@@ -327,7 +327,6 @@ class Report(DPObjectRef):
         )
 
         # convert to string
-        # report_str = etree.tounicode(processed_report_doc)
         report_str = etree.tostring(
             processed_report_doc, encoding='unicode'
         )
@@ -339,12 +338,10 @@ class Report(DPObjectRef):
 
     def _report_status_checks(self, processed_report_doc: etree._ElementTree, embedded: bool, check_empty: bool):
         # check for any unsupported local features, e.g. DataTable
-        # NOTE - we could eventually have different validators for local and uploaded reports
         if embedded:
             return None
 
         # Report checks
-        # TODO - validate at least a single element
         asset_blocks = processed_report_doc.xpath("count(/Report/Pages/Page/*)")
         if asset_blocks == 0 and check_empty:
             raise InvalidReportError("Empty report - must contain at least one asset/block")
@@ -372,7 +369,7 @@ class Report(DPObjectRef):
             name = Path(path).stem[:127]
 
         local_doc, _ = self._gen_report(embedded=True, title=name)
-        report_id = self._local_writer.write(
+        self._local_writer.write(
             local_doc,
             path,
             name=name,
