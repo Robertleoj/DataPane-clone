@@ -161,12 +161,8 @@ class ReportFileWriter:
         r = self.template.render(
             report_doc=report_doc,
             report_width=formatting.width.value,
-            report_name=name,
-            report_author=author,
-            report_date=timestamp(),
             css_header=formatting.to_css(),
             is_light_prose=formatting.light_prose,
-            # dp_logo=self.logo,
             report_id=report_id,
             author_id=c.config.session_id,
             events=False,
@@ -301,15 +297,14 @@ class Report(DPObjectRef):
             report_doc.insert(0, meta)
         return (report_doc, _s.attachments)
 
-    def _gen_report(
+    def _get_validated_doc(
         self,
         embedded: bool,
         title: str = "Title",
         description: str = "Description",
         author: str = "Anonymous",
         check_empty: bool = True,
-    ) -> t.Tuple[str, t.List[Path]]:
-        """Generate a report for saving/uploading"""
+    ):
 
         report_doc, attachments = self._to_xml(
             embedded, title, description, author
@@ -325,7 +320,20 @@ class Report(DPObjectRef):
         self._report_status_checks(
             processed_report_doc, embedded, check_empty
         )
+        return processed_report_doc, attachments
 
+    def _gen_report(
+        self,
+        embedded: bool,
+        title: str = "Title",
+        description: str = "Description",
+        author: str = "Anonymous",
+        check_empty: bool = True,
+    ) -> t.Tuple[str, t.List[Path]]:
+        """Generate a report for saving/uploading"""
+        processed_report_doc, attachments = self._get_validated_doc(
+            embedded, title, description, author, check_empty
+        )
         # convert to string
         report_str = etree.tostring(
             processed_report_doc, encoding='unicode'
@@ -335,6 +343,17 @@ class Report(DPObjectRef):
 
         return (report_str, attachments)
         # return report_doc, processed_report_doc
+
+    def get_report(
+        self,
+        title="Title",
+        description="Description",
+        author="Anonymous"
+    ):
+        return self._get_validated_doc(
+            False, title, description, author, True
+        )
+
 
     def _report_status_checks(self, processed_report_doc: etree._ElementTree, embedded: bool, check_empty: bool):
         # check for any unsupported local features, e.g. DataTable

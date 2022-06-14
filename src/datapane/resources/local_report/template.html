@@ -36,23 +36,5 @@
         document.querySelector("#report-root")
       );
     </script>
-
-    <div style="position: fixed; bottom: 0; width: 100%; z-index: 3;">
-      <nav class="bg-gray-200 border-t border-gray-300">
-        <div class="relative flex items-center justify-between h-12">
-          <div class="flex-shrink pl-4 flex items-center">
-            <span class="ml-2 text-gray-700 text-sm text-truncate pr-2">
-              <span class="font-semibold">{{report_name}}</span> {% if report_author %} by {{report_author}}{% else %} created {% endif %} on <script>document.write(new Date("{{report_date}}").toLocaleString());</script>
-            </span>
-          </div>
-          <div class="inline-flex flex-shrink-0"/>
-          <div class="flex-shrink pr-4 flex items-center">
-            <a href="https://datapane.com/?utm_medium=local&utm_content=mainlogo" target="_blank" class="flex-shrink-0">
-              <img class="block h-7 w-auto" src="{{dp_logo|safe}}" alt="logo" title="Built in Python with Datapane">
-            </a>
-          </div>
-        </div>
-      </nav>
-    </div>
   </body>
 </html>
