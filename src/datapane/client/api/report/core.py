@@ -163,8 +163,6 @@ class ReportFileWriter:
             report_width=formatting.width.value,
             css_header=formatting.to_css(),
             is_light_prose=formatting.light_prose,
-            report_id=report_id,
-            author_id=c.config.session_id,
             events=False,
         )
 

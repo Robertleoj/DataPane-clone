@@ -9,11 +9,6 @@
     />
     <script>
       window.dpLocal = true;
-      {% if events %}
-        window.dpLocalViewEvent = {{events|tojson}};
-        window.dpReportId = "{{report_id}}";
-        window.dpAuthorId = "{{author_id}}";
-      {% endif %}
     </script>
     <style>
       {% include "local-report-base.css" %}
