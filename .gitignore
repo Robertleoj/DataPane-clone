@@ -23,7 +23,6 @@ _version.py
 *_key.json
 dp-cache
 dp-tmp-*
-local-report-base*
 
 # repo specific
 test_proj*/
