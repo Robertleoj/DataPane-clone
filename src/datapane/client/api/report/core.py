@@ -287,10 +287,7 @@ class Report(DPObjectRef):
         # add optional Meta
         if embedded:
             meta = E.Meta(
-                E.Author(author or ""),
                 E.CreatedOn(timestamp()),
-                E.Title(title),
-                E.Description(description),
             )
             report_doc.insert(0, meta)
         return (report_doc, _s.attachments)
@@ -342,15 +339,26 @@ class Report(DPObjectRef):
         return (report_str, attachments)
         # return report_doc, processed_report_doc
 
-    def get_report(
-        self,
-        title="Title",
-        description="Description",
-        author="Anonymous"
-    ):
-        return self._get_validated_doc(
-            False, title, description, author, True
+    # def get_report(
+    #     self,
+    #     title="Title",
+    #     description="Description",
+    #     author="Anonymous"
+    # ):
+    #     return self._get_validated_doc(
+    #         False, title, description, author, True
+    #     )
+
+    def get_report(self):
+        processed_report_doc, attachments = self._get_validated_doc(
+            False, "", "", ""
         )
+        # convert to string
+        report_str = etree.tostring(
+            processed_report_doc, encoding='unicode'
+        )
+
+        return report_str, attachments
 
 
     def _report_status_checks(self, processed_report_doc: etree._ElementTree, embedded: bool, check_empty: bool):
