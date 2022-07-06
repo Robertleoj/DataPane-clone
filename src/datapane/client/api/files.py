@@ -90,7 +90,7 @@ class PathWrapper(BaseAsset):
 class BaseTable(BaseAsset):
     mimetype = "application/vnd.datapane.table+html"
     ext = ".tbl.html"
-    TABLE_CELLS_LIMIT: int = 5000
+    TABLE_CELLS_LIMIT: int = 100000
     obj_type: U
     block_type = Table
 
